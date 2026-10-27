@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Интегральная метрика браузерных страниц — статистика разметок (v5).
+Интегральная метрика браузерных страниц — статистика разметок (v6).
 Запуск: streamlit run app.py
 Зависимости: pip install streamlit pandas openpyxl matplotlib
 """
@@ -12,6 +12,30 @@ import streamlit as st
 import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Интегральная метрика: статистика разметок", layout="wide")
+
+# --- Компактная тёмная тема интерфейса ---
+st.markdown("""
+<style>
+    /* Уменьшаем вертикальные отступы между блоками */
+    .block-container { padding-top: 1rem; padding-bottom: 1rem; max-width: 1400px; }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] { padding: 6px 16px; font-size: 0.95em; }
+    h1 { font-size: 1.6rem; margin-bottom: 0.3rem; }
+    h2, h3 { font-size: 1.05rem; margin: 0.4rem 0 0.2rem 0; }
+    .stMetric { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px; padding: 6px 10px; }
+    [data-testid="stMetricValue"] { font-size: 1.15rem; }
+    [data-testid="stMetricLabel"] { font-size: 0.75rem; }
+    /* Компактные таблицы */
+    [data-testid="stDataFrame"] { font-size: 0.8rem; }
+    .stDownloadButton > button { font-size: 0.85rem; padding: 4px 14px; }
+    .stCaption, [data-testid="stCaptionContainer"] { font-size: 0.75rem; }
+    /* Меньше отступов у графиков */
+    .stpyplot { margin-bottom: -20px; }
+    .element-container:has(.stpyplot) { margin-bottom: -10px; }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("Интегральная метрика браузерных страниц — статистика разметок")
 
 BASE_COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
@@ -32,36 +56,47 @@ def is_dark_theme():
 
 
 def apply_theme(ax, title):
-    """Заглушка: графики в стандартном (светлом) оформлении matplotlib."""
-    ax.set_title(title)
+    """Оформление осей matplotlib в цвет темы интерфейса."""
+    ax.set_title(title, fontsize=10)
+    if is_dark_theme():
+        text_color = "#e0e0e0"
+        ax.set_facecolor("#262730")
+        ax.tick_params(colors=text_color, labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_color("#555555")
+    else:
+        ax.tick_params(labelsize=8)
 
 
 def colored_bar(series, colors, title, small=False):
     """Столбчатая диаграмма с индивидуальным цветом на категорию."""
     fig, ax = plt.subplots(figsize=(2.5, 1.25) if small else (3.5, 2))
+    fig.subplots_adjust(left=0.25, right=0.98, top=0.82, bottom=0.35)
     counts = series.value_counts()
     cols = [colors.get(c, "#808080") for c in counts.index]
     ax.bar(range(len(counts)), counts.values, color=cols)
     ax.set_xticks(range(len(counts)))
-    ax.set_xticklabels(counts.index, rotation=35, ha="right", fontsize=8)
+    ax.set_xticklabels(counts.index, rotation=35, ha="right", fontsize=7)
     apply_theme(ax, title)
     st.pyplot(fig)
     plt.close(fig)
-    
+
+
 def severity_bar(series, title="Распределение по грубости", small=True):
     """Компактная диаграмма распределения грубости (3–6), цифры без поворота."""
     fig, ax = plt.subplots(figsize=(2.5, 1.25) if small else (3.5, 2))
+    fig.subplots_adjust(left=0.22, right=0.98, top=0.82, bottom=0.35)
     counts = series.value_counts().sort_index()
-    # Равномерные цвета для уровней грубости: чем грубее, тем «горячее»
     sev_colors = {3: "#f58231", 4: "#e6a84b", 5: "#e6644b", 6: "#e6194b"}
     cols = [sev_colors.get(s, "#808080") for s in counts.index]
     ax.bar(range(len(counts)), counts.values, color=cols)
     ax.set_xticks(range(len(counts)))
-    ax.set_xticklabels(counts.index, fontsize=10)  # без rotation — цифры горизонтальны
-    ax.set_xlabel("Грубость", fontsize=9)
+    ax.set_xticklabels(counts.index, fontsize=8)
+    ax.set_xlabel("Грубость", fontsize=7)
     apply_theme(ax, title)
     st.pyplot(fig)
     plt.close(fig)
+
 
 def get_box(ann):
     """Извлекает прямоугольник выделения (x, y, w, h) из разметки."""
@@ -84,24 +119,8 @@ def get_box(ann):
     return None
 
 
-def overlap_min_area(b1, b2):
-    """Пересечение двух прямоугольников, нормированное на меньшую площадь.
-    Устойчиво к ситуации «один выделил слово, другой — предложение вокруг него»."""
-    x1, y1, w1, h1 = b1
-    x2, y2, w2, h2 = b2
-    if w1 <= 0 or h1 <= 0 or w2 <= 0 or h2 <= 0:
-        return 0.0
-    ix = max(0.0, min(x1 + w1, x2 + w2) - max(x1, x2))
-    iy = max(0.0, min(y1 + h1, y2 + h2) - max(y1, y2))
-    inter = ix * iy
-    smaller = min(w1 * h1, w2 * h2)
-    return inter / smaller if smaller > 0 else 0.0
-
-
 def page_name(link):
-    """Извлекает короткое название страницы из ссылки на html.
-    Берёт последний сегмент пути без расширения, напр.
-    https://.../pages/checkout.html -> checkout"""
+    """Извлекает короткое название страницы из ссылки на html."""
     if not isinstance(link, str) or not link:
         return ""
     m = re.search(r"([^/]+?)(?:\.html?)?(?:[?#].*)?$", link.rstrip("/"))
@@ -119,18 +138,19 @@ def short_label(link, used):
     used.add(label)
     return label
 
+
 WORD_RE = re.compile(r"[а-яёa-z0-9]+", re.IGNORECASE)
 
 
 def norm_words(text):
-    """Разбивает текст выделения на нормализованные слова (нижний регистр)."""
+    """Разбивает текст на нормализованные слова (нижний регистр)."""
     if not isinstance(text, str):
         return []
     return WORD_RE.findall(text.lower())
 
 
 def words_similar(w1, w2):
-    """Похожи ли два слова (учёт падежных форм и опечаток):
+    """Похожи ли два слова (падежные формы, опечатки):
     общий префикс >= 4 символов ИЛИ похожесть по difflib >= 0.8."""
     if w1 == w2:
         return True
@@ -147,8 +167,7 @@ def words_similar(w1, w2):
 
 def texts_match(t1, t2, span_width):
     """Совпадают ли два текстовых выделения: есть похожее ключевое слово,
-    и в каждом тексте не более (1 + 2 * span_width) слов, т.е. вокруг
-    ключевого слова допускается до span_width добавочных слов слева и справа."""
+    и в каждом тексте не более (1 + 2 * span_width) слов."""
     w1, w2 = norm_words(t1), norm_words(t2)
     if not w1 or not w2:
         return False
@@ -194,7 +213,6 @@ def load_tsv(file) -> pd.DataFrame:
             })
     out = pd.DataFrame(records)
     if not out.empty:
-        # Приводим дату к «наивной» (без таймзоны) — иначе Excel не экспортируется
         out["created_at"] = pd.to_datetime(out["created_at"], errors="coerce",
                                            format="mixed", utc=True)
         out["created_at"] = out["created_at"].dt.tz_localize(None)
@@ -218,7 +236,7 @@ def color_map(categories):
     return {c: BASE_COLORS[i % len(BASE_COLORS)] for i, c in enumerate(categories)}
 
 
-# ===================== ИНТЕРФЕЙС =====================
+# ===================== ЗАГРУЗКА И ФИЛЬТРЫ =====================
 
 col1, col2 = st.columns(2)
 with col1:
@@ -238,7 +256,6 @@ if df.empty:
 
 assessment = load_assessment(assess_file) if assess_file is not None else None
 
-# --- Фильтры ---
 all_pages = sorted(df["page"].unique())
 used = set()
 label_to_page = {short_label(p, used): p for p in all_pages}
@@ -254,7 +271,6 @@ with c3:
 with c4:
     cats = st.multiselect("Категория", sorted(df["category"].unique()))
 
-# Полные ссылки на выбранные страницы
 if pages:
     with st.expander(f"Выбранные страницы ({len(pages)}) — полные ссылки"):
         for p in pages:
@@ -268,287 +284,289 @@ if cats: f = f[f["category"].isin(cats)]
 
 CMAP = color_map(sorted(df["category"].unique()))
 
-# ===================== ОБЩАЯ СТАТИСТИКА =====================
-st.subheader("Общая статистика")
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Всего выделений", len(f))
-k2.metric("Разметчиков", f["author"].nunique())
-k3.metric("Страниц", f["page"].nunique())
-k4.metric("Ср. выделений на разметчика", round(len(f) / max(f["author"].nunique(), 1), 1))
+# ===================== ВКЛАДКИ =====================
 
-# Строка 1: тип ошибки + грубость + инструменты (все — маленькие двухколоночные)
-r1 = st.columns(3)
-with r1[0]:
-    colored_bar(f["error_type"], CMAP, "По типу ошибки")
-with r1[1]:
-    severity_bar(f["severity"])
-with r1[2]:
-    colored_bar(f["tool"], {"Текст": "#4363d8", "Прямоугольник": "#f58231"},
-                "Инструменты выделения")
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Общая статистика",
+                                  "🤝 Согласованность",
+                                  "📈 Динамика качества",
+                                  "💬 Комментарии"])
 
-# Строка 2: категории — во всю ширину (их много, подписи длинные)
-colored_bar(f["category"], CMAP, "По категориям")
+# -------------------- ВКЛАДКА 1: ОБЩАЯ СТАТИСТИКА --------------------
+with tab1:
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Всего выделений", len(f))
+    k2.metric("Разметчиков", f["author"].nunique())
+    k3.metric("Страниц", f["page"].nunique())
+    k4.metric("Ср. выделений на разметчика",
+              round(len(f) / max(f["author"].nunique(), 1), 1))
 
-# Таблица «категория × инструмент» рядом с категориями не нужна отдельно —
-# при желании оставьте её ниже:
-tool_cat = f.groupby(["category", "tool"]).size().unstack(fill_value=0)
-st.dataframe(tool_cat, use_container_width=True)
+    r1 = st.columns(3)
+    with r1[0]:
+        colored_bar(f["error_type"], CMAP, "По типу ошибки")
+    with r1[1]:
+        severity_bar(f["severity"])
+    with r1[2]:
+        colored_bar(f["tool"], {"Текст": "#4363d8", "Прямоугольник": "#f58231"},
+                    "Инструменты выделения")
 
-st.subheader("Плотность разметки по разметчикам")
-per_author = (f.groupby("author")
-                .agg(выделений=("ann_id", "count"),
-                     страниц=("page", "nunique"),
-                     с_комментарием=("comment", lambda s: (s.fillna("") != "").sum()))
-                .sort_values("выделений", ascending=False))
-st.dataframe(per_author)
+    colored_bar(f["category"], CMAP, "По категориям")
 
-st.subheader("Статистика по страницам")
-per_page = (f.groupby(["название_страницы", "page"])
-              .agg(выделений=("ann_id", "count"),
-                   разметчиков=("author", "nunique"),
-                   ср_грубость=("severity", "mean"))
-              .reset_index()
-              .sort_values("выделений", ascending=False))
-st.dataframe(per_page, use_container_width=True)
+    per_author = (f.groupby("author")
+                    .agg(выделений=("ann_id", "count"),
+                         страниц=("page", "nunique"),
+                         с_комментарием=("comment", lambda s: (s.fillna("") != "").sum()))
+                    .sort_values("выделений", ascending=False))
+    st.markdown("**Плотность разметки по разметчикам**")
+    st.dataframe(per_author, use_container_width=True, height=250)
 
-# ===================== СОГЛАСОВАННОСТЬ РЕДАКТОРОВ =====================
-st.header("Согласованность редакторов")
-st.caption("Сопоставляются только выделения, сделанные инструментом «Текст» "
-           "(выделения «Прямоугольником» игнорируются, т.к. не содержат "
-           "однозначного текста). Два выделения разных редакторов на одной "
-           "странице считаются одним и тем же местом, если их тексты содержат "
-           "похожее ключевое слово (с учётом падежных форм) и различаются "
-           "не более чем на заданную ширину спана — количество добавочных "
-           "слов слева и/или справа от ключевого слова.")
+    per_page = (f.groupby(["название_страницы", "page"])
+                  .agg(выделений=("ann_id", "count"),
+                       разметчиков=("author", "nunique"),
+                       ср_грубость=("severity", "mean"))
+                  .reset_index()
+                  .sort_values("выделений", ascending=False))
+    st.markdown("**Статистика по страницам**")
+    st.dataframe(per_page, use_container_width=True, height=250)
 
-span_width = st.slider("Ширина спана (добавочных слов вокруг ключевого слова)",
-                       1, 5, 2)
+    with st.expander("Категория × инструмент выделения"):
+        tool_cat = f.groupby(["category", "tool"]).size().unstack(fill_value=0)
+        st.dataframe(tool_cat, use_container_width=True)
 
-# Только текстовые выделения с непустым текстом
-ft = f[(f["tool"] == "Текст") & (f["text"].fillna("") != "")].reset_index(drop=True)
+# -------------------- ВКЛАДКА 2: СОГЛАСОВАННОСТЬ --------------------
+with tab2:
+    st.caption("Сопоставляются только выделения, сделанные инструментом «Текст» "
+               "(выделения «Прямоугольником» игнорируются, т.к. не содержат "
+               "однозначного текста). Два выделения разных редакторов на одной "
+               "странице считаются одним и тем же местом, если их тексты содержат "
+               "похожее ключевое слово (с учётом падежных форм) и различаются "
+               "не более чем на заданную ширину спана — количество добавочных "
+               "слов слева и/или справа от ключевого слова.")
 
-if ft.empty:
-    st.info("В выбранной выборке нет текстовых выделений — "
-            "анализ согласованности невозможен.")
-    clusters = pd.DataFrame()
-    multi = pd.DataFrame()
-else:
-    # Union-Find для группировки совпадающих выделений
-    parent = {i: i for i in range(len(ft))}
+    span_width = st.slider("Ширина спана (добавочных слов вокруг ключевого слова)",
+                           1, 5, 2)
 
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
+    ft = f[(f["tool"] == "Текст") & (f["text"].fillna("") != "")].reset_index(drop=True)
 
-    def union(i, j):
-        parent[find(i)] = find(j)
-
-    for page, grp in ft.groupby("page"):
-        idxs = grp.index.tolist()
-        recs = grp.to_dict("records")
-        for a_i in range(len(recs)):
-            for b_i in range(a_i + 1, len(recs)):
-                a, b = recs[a_i], recs[b_i]
-                if a["author"] == b["author"]:
-                    continue
-                if texts_match(a["text"], b["text"], span_width):
-                    union(idxs[a_i], idxs[b_i])
-
-    ft["cluster"] = [find(i) for i in range(len(ft))]
-
-    cluster_rows = []
-    for cl, grp in ft.groupby("cluster"):
-        n_authors = grp["author"].nunique()
-        cluster_rows.append({
-            "название_страницы": grp["название_страницы"].iloc[0],
-            "редакторов": n_authors,
-            "выделений": len(grp),
-            "категории": "; ".join(sorted(grp["category"].unique())),
-            "грубости": "; ".join(sorted(str(s) for s in grp["severity"].dropna().unique())),
-            "совпала_категория": grp["category"].nunique() == 1 if n_authors > 1 else None,
-            "совпала_грубость": grp["severity"].nunique() == 1 if n_authors > 1 else None,
-            "тексты": " | ".join(dict.fromkeys(grp["text"]))[:160],
-            "авторы": "; ".join(sorted(grp["author"].unique())),
-        })
-    clusters = pd.DataFrame(cluster_rows)
-
-    multi = clusters[clusters["редакторов"] >= 2]
-    solo = clusters[clusters["редакторов"] == 1]
-
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Текстовых выделений проанализировано", len(ft))
-    m2.metric("Совпавших мест (≥2 редакторов)", len(multi))
-    m3.metric("Уникальных (1 редактор)", len(solo))
-    if len(multi):
-        agree = multi["совпала_категория"].mean()
-        m4.metric("Совпадение категорий", f"{agree:.0%}")
+    if ft.empty:
+        st.info("В выбранной выборке нет текстовых выделений — "
+                "анализ согласованности невозможен.")
+        clusters = pd.DataFrame()
+        multi = pd.DataFrame()
     else:
-        m4.metric("Совпадение категорий", "—")
+        parent = {i: i for i in range(len(ft))}
 
-    if len(multi):
-        st.markdown("**Расхождение редакторов в совпавших местах:**")
-        dis_cat = multi["совпала_категория"].value_counts().rename(
-            {True: "категория совпала", False: "категория разошлась"})
-        dis_sev = multi["совпала_грубость"].value_counts().rename(
-            {True: "грубость совпала", False: "грубость разошлась"})
-        d1, d2 = st.columns(2)
-        with d1:
-            st.bar_chart(dis_cat)
-        with d2:
-            st.bar_chart(dis_sev)
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
 
-        st.subheader("Совпавшие места (≥2 редакторов)")
-        st.dataframe(multi.sort_values("редакторов", ascending=False),
-                     use_container_width=True)
+        def union(i, j):
+            parent[find(i)] = find(j)
 
-        st.subheader("Уникальные текстовые выделения (только один редактор)")
-        uniq_ann = ft[ft["cluster"].isin(solo.index)]
-        st.dataframe(uniq_ann[["название_страницы", "author", "error_type",
-                               "category", "severity", "text"]],
-                     use_container_width=True)
-    else:
-        st.info("Совпадений между редакторами при данной ширине спана не найдено. "
-                "Попробуйте увеличить ширину спана.")
+        for page, grp in ft.groupby("page"):
+            idxs = grp.index.tolist()
+            recs = grp.to_dict("records")
+            for a_i in range(len(recs)):
+                for b_i in range(a_i + 1, len(recs)):
+                    a, b = recs[a_i], recs[b_i]
+                    if a["author"] == b["author"]:
+                        continue
+                    if texts_match(a["text"], b["text"], span_width):
+                        union(idxs[a_i], idxs[b_i])
 
-# ===================== ДИНАМИКА КАЧЕСТВА =====================
-st.header("Динамика качества разметок")
-if assessment is None or assessment.empty:
-    st.info("Загрузите xlsx-файл с результатами ручных проверок (кнопка вверху), "
-            "чтобы увидеть этот раздел.")
-else:
-    a = assessment.dropna(subset=["pass"])
-    a = a[a["pass"].isin(["Да", "Нет", "Не уверен"])]
+        ft["cluster"] = [find(i) for i in range(len(ft))]
 
-    v1, v2, v3, v4 = st.columns(4)
-    v1.metric("Проверок всего", len(a))
-    v2.metric("Да", (a["pass"] == "Да").sum())
-    v3.metric("Нет", (a["pass"] == "Нет").sum())
-    v4.metric("Не уверен", (a["pass"] == "Не уверен").sum())
+        cluster_rows = []
+        for cl, grp in ft.groupby("cluster"):
+            n_authors = grp["author"].nunique()
+            cluster_rows.append({
+                "название_страницы": grp["название_страницы"].iloc[0],
+                "редакторов": n_authors,
+                "выделений": len(grp),
+                "категории": "; ".join(sorted(grp["category"].unique())),
+                "грубости": "; ".join(sorted(str(s) for s in grp["severity"].dropna().unique())),
+                "совпала_категория": grp["category"].nunique() == 1 if n_authors > 1 else None,
+                "совпала_грубость": grp["severity"].nunique() == 1 if n_authors > 1 else None,
+                "тексты": " | ".join(dict.fromkeys(grp["text"]))[:160],
+                "авторы": "; ".join(sorted(grp["author"].unique())),
+            })
+        clusters = pd.DataFrame(cluster_rows)
 
-    q1, q2 = st.columns(2)
-    with q1:
-        colored_bar(a["pass"], VERDICT_COLORS, "Распределение вердиктов")
-    with q2:
-        if "date" in a.columns and a["date"].notna().any():
-            by_day = a.groupby([a["date"].dt.date, "pass"]).size().unstack(fill_value=0)
-            for c in ["Да", "Нет", "Не уверен"]:
-                if c not in by_day.columns:
-                    by_day[c] = 0
-            fig, ax = plt.subplots(figsize=(3.5, 2))
-            bottom = None
-            for c in ["Да", "Нет", "Не уверен"]:
-                ax.bar(by_day.index.astype(str), by_day[c], bottom=bottom,
-                       color=VERDICT_COLORS[c], label=c)
-                bottom = by_day[c] if bottom is None else bottom + by_day[c]
-            apply_theme(ax, "Динамика вердиктов по дням")
-            ax.legend()
-            ax.tick_params(axis="x", rotation=45)
-            st.pyplot(fig)
-            plt.close(fig)
+        multi = clusters[clusters["редакторов"] >= 2]
+        solo = clusters[clusters["редакторов"] == 1]
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Текстовых выделений проанализировано", len(ft))
+        m2.metric("Совпавших мест (≥2 редакторов)", len(multi))
+        m3.metric("Уникальных (1 редактор)", len(solo))
+        if len(multi):
+            agree = multi["совпала_категория"].mean()
+            m4.metric("Совпадение категорий", f"{agree:.0%}")
         else:
-            st.info("В файле нет корректной колонки date.")
+            m4.metric("Совпадение категорий", "—")
 
-    st.subheader("Вердикты по разметчикам")
-    by_worker = a.groupby("worker")["pass"].value_counts().unstack(fill_value=0)
-    for c in ["Да", "Нет", "Не уверен"]:
-        if c not in by_worker.columns:
-            by_worker[c] = 0
-    by_worker["доля_Да"] = (by_worker["Да"] /
-                             by_worker[["Да", "Нет", "Не уверен"]].sum(axis=1)).round(2)
-    st.dataframe(by_worker.sort_values("доля_Да", ascending=False))
+        if len(multi):
+            dis_cat = multi["совпала_категория"].value_counts().rename(
+                {True: "категория совпала", False: "категория разошлась"})
+            dis_sev = multi["совпала_грубость"].value_counts().rename(
+                {True: "грубость совпала", False: "грубость разошлась"})
+            d1, d2 = st.columns(2)
+            with d1:
+                st.bar_chart(dis_cat, height=200)
+            with d2:
+                st.bar_chart(dis_sev, height=200)
 
-    st.subheader("Проверки с комментариями")
-    st.dataframe(a[["worker", "date", "pass", "comment"]], use_container_width=True)
+            st.markdown("**Совпавшие места (≥2 редакторов)**")
+            st.dataframe(multi.sort_values("редакторов", ascending=False),
+                         use_container_width=True, height=300)
 
-# ===================== АНАЛИЗ КОММЕНТАРИЕВ =====================
-st.header("Анализ комментариев разметчиков")
+            with st.expander("Уникальные текстовые выделения (только один редактор)"):
+                uniq_ann = ft[ft["cluster"].isin(solo.index)]
+                st.dataframe(uniq_ann[["название_страницы", "author", "error_type",
+                                       "category", "severity", "text"]],
+                             use_container_width=True, height=300)
+        else:
+            st.info("Совпадений между редакторами при данной ширине спана не найдено. "
+                    "Попробуйте увеличить ширину спана.")
 
-# Подготовка: непустые комментарии
-fc = f.copy()
-fc["comment"] = fc["comment"].fillna("")
-fc["has_comment"] = fc["comment"] != ""
-fc["comment_len"] = fc["comment"].str.len()
-fc["comment_words"] = fc["comment"].apply(lambda s: len(norm_words(s)))
+# -------------------- ВКЛАДКА 3: ДИНАМИКА КАЧЕСТВА --------------------
+with tab3:
+    if assessment is None or assessment.empty:
+        st.info("Загрузите xlsx-файл с результатами ручных проверок (кнопка вверху), "
+                "чтобы увидеть этот раздел.")
+    else:
+        a = assessment.dropna(subset=["pass"])
+        a = a[a["pass"].isin(["Да", "Нет", "Не уверен"])]
 
-n1, n2, n3, n4 = st.columns(4)
-n1.metric("Всего выделений", len(fc))
-n2.metric("С комментариями", int(fc["has_comment"].sum()))
-n3.metric("Без комментариев", int((~fc["has_comment"]).sum()))
-n4.metric("Доля с комментарием",
-          f"{fc['has_comment'].mean():.0%}" if len(fc) else "—")
+        v1, v2, v3, v4 = st.columns(4)
+        v1.metric("Проверок всего", len(a))
+        v2.metric("Да", (a["pass"] == "Да").sum())
+        v3.metric("Нет", (a["pass"] == "Нет").sum())
+        v4.metric("Не уверен", (a["pass"] == "Не уверен").sum())
 
-# --- Комментарии по категориям и типам ошибок ---
-st.subheader("Комментарии по категориям и типам ошибок")
-cat_comm = (fc.groupby("category")
-              .agg(выделений=("ann_id", "count"),
-                   с_комментарием=("has_comment", "sum"),
-                   доля_с_комментарием=("has_comment", "mean"),
-                   ср_длина_комментария=("comment_len", "mean"))
-              .round(2)
-              .sort_values("доля_с_комментарием", ascending=False))
-st.dataframe(cat_comm, use_container_width=True)
+        q1, q2 = st.columns(2)
+        with q1:
+            colored_bar(a["pass"], VERDICT_COLORS, "Распределение вердиктов")
+        with q2:
+            if "date" in a.columns and a["date"].notna().any():
+                by_day = a.groupby([a["date"].dt.date, "pass"]).size().unstack(fill_value=0)
+                for c in ["Да", "Нет", "Не уверен"]:
+                    if c not in by_day.columns:
+                        by_day[c] = 0
+                fig, ax = plt.subplots(figsize=(3.5, 2))
+                fig.subplots_adjust(left=0.25, right=0.98, top=0.82, bottom=0.35)
+                bottom = None
+                for c in ["Да", "Нет", "Не уверен"]:
+                    ax.bar(by_day.index.astype(str), by_day[c], bottom=bottom,
+                           color=VERDICT_COLORS[c], label=c)
+                    bottom = by_day[c] if bottom is None else bottom + by_day[c]
+                apply_theme(ax, "Динамика вердиктов по дням")
+                if is_dark_theme():
+                    ax.legend(fontsize=7, facecolor="#262730",
+                              labelcolor="#e0e0e0", edgecolor="#555555")
+                else:
+                    ax.legend(fontsize=7)
+                ax.tick_params(axis="x", rotation=45)
+                st.pyplot(fig)
+                plt.close(fig)
+            else:
+                st.info("В файле нет корректной колонки date.")
 
-et_comm = (fc.groupby("error_type")
-             .agg(выделений=("ann_id", "count"),
-                  с_комментарием=("has_comment", "sum"),
-                  доля_с_комментарием=("has_comment", "mean"))
-             .round(2))
-st.dataframe(et_comm)
+        by_worker = a.groupby("worker")["pass"].value_counts().unstack(fill_value=0)
+        for c in ["Да", "Нет", "Не уверен"]:
+            if c not in by_worker.columns:
+                by_worker[c] = 0
+        by_worker["доля_Да"] = (by_worker["Да"] /
+                                 by_worker[["Да", "Нет", "Не уверен"]].sum(axis=1)).round(2)
+        st.markdown("**Вердикты по разметчикам**")
+        st.dataframe(by_worker.sort_values("доля_Да", ascending=False), height=250)
 
-# --- Рейтинг разметчиков ---
-st.subheader("Рейтинг разметчиков по комментариям")
-author_comm = (fc.groupby("author")
+        with st.expander("Проверки с комментариями"):
+            st.dataframe(a[["worker", "date", "pass", "comment"]],
+                         use_container_width=True, height=300)
+
+# -------------------- ВКЛАДКА 4: КОММЕНТАРИИ --------------------
+with tab4:
+    fc = f.copy()
+    fc["comment"] = fc["comment"].fillna("")
+    fc["has_comment"] = fc["comment"] != ""
+    fc["comment_len"] = fc["comment"].str.len()
+    fc["comment_words"] = fc["comment"].apply(lambda s: len(norm_words(s)))
+
+    n1, n2, n3, n4 = st.columns(4)
+    n1.metric("Всего выделений", len(fc))
+    n2.metric("С комментариями", int(fc["has_comment"].sum()))
+    n3.metric("Без комментариев", int((~fc["has_comment"]).sum()))
+    n4.metric("Доля с комментарием",
+              f"{fc['has_comment'].mean():.0%}" if len(fc) else "—")
+
+    r1c, r2c = st.columns(2)
+    with r1c:
+        colored_bar(fc.loc[fc["has_comment"], "category"], CMAP,
+                    "Комментарии по категориям")
+    with r2c:
+        colored_bar(fc.loc[fc["has_comment"], "error_type"], CMAP,
+                    "Комментарии по типам ошибок")
+
+    cat_comm = (fc.groupby("category")
+                  .agg(выделений=("ann_id", "count"),
+                       с_комментарием=("has_comment", "sum"),
+                       доля_с_комментарием=("has_comment", "mean"),
+                       ср_длина_комментария=("comment_len", "mean"))
+                  .round(2)
+                  .sort_values("доля_с_комментарием", ascending=False))
+    st.markdown("**Комментарии по категориям**")
+    st.dataframe(cat_comm, use_container_width=True, height=250)
+
+    et_comm = (fc.groupby("error_type")
                  .agg(выделений=("ann_id", "count"),
                       с_комментарием=("has_comment", "sum"),
-                      доля_с_комментарием=("has_comment", "mean"),
-                      ср_символов=("comment_len", "mean"),
-                      ср_слов=("comment_words", "mean"),
-                      символов_всего=("comment_len", "sum"))
+                      доля_с_комментарием=("has_comment", "mean"))
                  .round(2))
+    st.markdown("**Комментарии по типам ошибок**")
+    st.dataframe(et_comm, height=150)
 
-# Сводный индекс: доля комментируемых × средняя длина (развёрнутость)
-# Нормируем обе величины в диапазон 0–1 по максимуму, индекс = их произведение.
-if len(author_comm):
-    norm_share = author_comm["доля_с_комментарием"] / author_comm["доля_с_комментарием"].max()
-    norm_len = author_comm["ср_символов"] / author_comm["ср_символов"].max()
-    author_comm["индекс_комментируемости"] = (norm_share * norm_len).round(3)
-    author_comm = author_comm.sort_values("индекс_комментируемости", ascending=False)
+    author_comm = (fc.groupby("author")
+                     .agg(выделений=("ann_id", "count"),
+                          с_комментарием=("has_comment", "sum"),
+                          доля_с_комментарием=("has_comment", "mean"),
+                          ср_символов=("comment_len", "mean"),
+                          ср_слов=("comment_words", "mean"),
+                          символов_всего=("comment_len", "sum"))
+                     .round(2))
 
-st.caption("Индекс комментируемости — сводный показатель: доля выделений с "
-           "комментарием × развёрнутость комментариев (средняя длина), обе "
-           "величины нормированы по максимуму в выборке. Чем выше, тем активнее "
-           "и подробнее разметчик комментирует.")
-st.dataframe(author_comm, use_container_width=True)
+    if len(author_comm):
+        norm_share = author_comm["доля_с_комментарием"] / author_comm["доля_с_комментарием"].max()
+        norm_len = author_comm["ср_символов"] / author_comm["ср_символов"].max()
+        author_comm["индекс_комментируемости"] = (norm_share * norm_len).round(3)
+        author_comm = author_comm.sort_values("индекс_комментируемости", ascending=False)
 
-# --- Диаграммы ---
-r1c, r2c = st.columns(2)
-with r1c:
-    colored_bar(fc.loc[fc["has_comment"], "category"], CMAP,
-                "Комментарии по категориям")
-with r2c:
-    colored_bar(fc.loc[fc["has_comment"], "error_type"], CMAP,
-                "Комментарии по типам ошибок")
+    st.markdown("**Рейтинг разметчиков по комментариям**")
+    st.caption("Индекс комментируемости — доля выделений с комментарием × "
+               "развёрнутость (средняя длина), нормировано по максимуму.")
+    st.dataframe(author_comm, use_container_width=True, height=250)
 
-# --- Само содержимое комментариев ---
-st.subheader("Все комментарии (таблица)")
-comm_table = fc[fc["has_comment"]][["название_страницы", "author", "error_type",
-                                    "category", "severity", "comment",
-                                    "comment_len", "comment_words"]]
-comm_table = comm_table.sort_values(["author", "comment_len"], ascending=[True, False])
-st.dataframe(comm_table, use_container_width=True)
+    comm_table = fc[fc["has_comment"]][["название_страницы", "author", "error_type",
+                                       "category", "severity", "comment",
+                                       "comment_len", "comment_words"]]
+    comm_table = comm_table.sort_values(["author", "comment_len"], ascending=[True, False])
 
-# --- Короткие комментарии (потенциально малоинформативные) ---
-short_thr = st.slider("Порог «короткого» комментария (символов)", 5, 100, 20, 5)
-short_comm = comm_table[comm_table["comment_len"] < short_thr]
-st.markdown(f"**Короткие комментарии (< {short_thr} символов): "
-            f"{len(short_comm)} шт.**")
-if len(short_comm):
-    st.dataframe(short_comm[["author", "category", "comment"]],
-                 use_container_width=True)
+    short_thr = st.slider("Порог «короткого» комментария (символов)", 5, 100, 20, 5)
+    short_comm = comm_table[comm_table["comment_len"] < short_thr]
+
+    e1, e2 = st.columns(2)
+    with e1:
+        with st.expander(f"Все комментарии ({len(comm_table)})"):
+            st.dataframe(comm_table, use_container_width=True, height=300)
+    with e2:
+        with st.expander(f"Короткие комментарии (< {short_thr} символов) — {len(short_comm)} шт."):
+            if len(short_comm):
+                st.dataframe(short_comm[["author", "category", "comment"]],
+                             use_container_width=True, height=300)
 
 # ===================== ОТЧЁТЫ =====================
+st.divider()
 st.subheader("Скачать отчёт")
 buf = io.BytesIO()
 with pd.ExcelWriter(buf, engine="openpyxl") as xl:
@@ -564,15 +582,12 @@ with pd.ExcelWriter(buf, engine="openpyxl") as xl:
     author_comm.to_excel(xl, sheet_name="Комментарии по разметчикам")
     cat_comm.to_excel(xl, sheet_name="Комментарии по категориям")
     comm_table.to_excel(xl, sheet_name="Все комментарии", index=False)
-st.download_button("📊 Excel-отчёт", buf.getvalue(), "markup_report.xlsx",
-                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-st.download_button("📄 CSV (выделения)",
-                   f.drop(columns=["box"]).to_csv(index=False).encode("utf-8"),
-                   "annotations.csv", "text/csv")
-                   
-st.markdown("""
-<style>
-    .stPlotlyChart, [data-testid="stPyplotGlobal"] { zoom: 0.6; }
-    .element-container img { zoom: 0.6; }
-</style>
-""", unsafe_allow_html=True)
+d1, d2 = st.columns(2)
+with d1:
+    st.download_button("📊 Excel-отчёт", buf.getvalue(), "markup_report.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       use_container_width=True)
+with d2:
+    st.download_button("📄 CSV (выделения)",
+                       f.drop(columns=["box"]).to_csv(index=False).encode("utf-8"),
+                       "annotations.csv", "text/csv", use_container_width=True)
