@@ -31,8 +31,6 @@ st.markdown("""
     .stDownloadButton > button { font-size: 0.85rem; padding: 4px 14px; }
     .stCaption, [data-testid="stCaptionContainer"] { font-size: 0.75rem; }
     /* Меньше отступов у графиков */
-    .stpyplot { margin-bottom: -20px; }
-    .element-container:has(.stpyplot) { margin-bottom: -10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -68,34 +66,54 @@ def apply_theme(ax, title):
         ax.tick_params(labelsize=8)
 
 
+import plotly.express as px
+import plotly.graph_objects as go
+
+
 def colored_bar(series, colors, title, small=False):
-    """Столбчатая диаграмма с индивидуальным цветом на категорию."""
-    fig, ax = plt.subplots(figsize=(2.5, 1.25) if small else (3.5, 2))
-    fig.subplots_adjust(left=0.25, right=0.98, top=0.82, bottom=0.35)
+    """Интерактивная столбчатая диаграмма с индивидуальным цветом на категорию."""
     counts = series.value_counts()
     cols = [colors.get(c, "#808080") for c in counts.index]
-    ax.bar(range(len(counts)), counts.values, color=cols)
-    ax.set_xticks(range(len(counts)))
-    ax.set_xticklabels(counts.index, rotation=35, ha="right", fontsize=7)
-    apply_theme(ax, title)
-    st.pyplot(fig)
-    plt.close(fig)
+    fig = go.Figure(go.Bar(
+        x=list(counts.index),
+        y=counts.values,
+        marker_color=cols,
+        text=counts.values,            # цифры прямо на колонках
+        textposition="outside",
+        hovertemplate="<b>%{x}</b><br>Количество: %{y}<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=13)),
+        margin=dict(l=10, r=10, t=35, b=10),   # без пустых полей
+        height=280 if small else 340,
+        xaxis_tickangle=-30,
+        bargap=0.35,
+    )
+    st.plotly_chart(fig, use_container_width=True,
+                    config={"displayModeBar": False})  # скрыть тулбар Plotly
 
 
 def severity_bar(series, title="Распределение по грубости", small=True):
-    """Компактная диаграмма распределения грубости (3–6), цифры без поворота."""
-    fig, ax = plt.subplots(figsize=(2.5, 1.25) if small else (3.5, 2))
-    fig.subplots_adjust(left=0.22, right=0.98, top=0.82, bottom=0.35)
+    """Интерактивная диаграмма распределения грубости (3–6)."""
     counts = series.value_counts().sort_index()
     sev_colors = {3: "#f58231", 4: "#e6a84b", 5: "#e6644b", 6: "#e6194b"}
     cols = [sev_colors.get(s, "#808080") for s in counts.index]
-    ax.bar(range(len(counts)), counts.values, color=cols)
-    ax.set_xticks(range(len(counts)))
-    ax.set_xticklabels(counts.index, fontsize=8)
-    ax.set_xlabel("Грубость", fontsize=7)
-    apply_theme(ax, title)
-    st.pyplot(fig)
-    plt.close(fig)
+    fig = go.Figure(go.Bar(
+        x=[str(s) for s in counts.index],
+        y=counts.values,
+        marker_color=cols,
+        text=counts.values,
+        textposition="outside",
+        hovertemplate="Грубость <b>%{x}</b><br>Количество: %{y}<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=13)),
+        margin=dict(l=10, r=10, t=35, b=10),
+        height=280 if small else 340,
+        xaxis_title="Грубость",
+        bargap=0.4,
+    )
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
 def get_box(ann):
@@ -454,22 +472,24 @@ with tab3:
                 for c in ["Да", "Нет", "Не уверен"]:
                     if c not in by_day.columns:
                         by_day[c] = 0
-                fig, ax = plt.subplots(figsize=(3.5, 2))
-                fig.subplots_adjust(left=0.25, right=0.98, top=0.82, bottom=0.35)
-                bottom = None
+                fig = go.Figure()
                 for c in ["Да", "Нет", "Не уверен"]:
-                    ax.bar(by_day.index.astype(str), by_day[c], bottom=bottom,
-                           color=VERDICT_COLORS[c], label=c)
-                    bottom = by_day[c] if bottom is None else bottom + by_day[c]
-                apply_theme(ax, "Динамика вердиктов по дням")
-                if is_dark_theme():
-                    ax.legend(fontsize=7, facecolor="#262730",
-                              labelcolor="#e0e0e0", edgecolor="#555555")
-                else:
-                    ax.legend(fontsize=7)
-                ax.tick_params(axis="x", rotation=45)
-                st.pyplot(fig)
-                plt.close(fig)
+                    fig.add_trace(go.Bar(
+                        name=c,
+                        x=[str(d) for d in by_day.index],
+                        y=by_day[c],
+                        marker_color=VERDICT_COLORS[c],
+                        hovertemplate=f"<b>{{%x}}</b><br>{c}: %{{y}}<extra></extra>",
+                    ))
+                fig.update_layout(
+                    barmode="stack",
+                    title=dict(text="Динамика вердиктов по дням", font=dict(size=13)),
+                    margin=dict(l=10, r=10, t=35, b=10),
+                    height=340,
+                    legend=dict(orientation="h", y=1.05),
+                )
+                st.plotly_chart(fig, use_container_width=True,
+                                config={"displayModeBar": False})
             else:
                 st.info("В файле нет корректной колонки date.")
 
