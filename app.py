@@ -41,6 +41,7 @@ BASE_COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
                "#9a6324", "#800000", "#808000", "#000075", "#a9a9a9"]
 
 VERDICT_COLORS = {"Да": "#3cb44b", "Нет": "#e6194b", "Не уверен": "#f58231"}
+ERROR_TYPE_COLORS = {"rendering": "#f58231", "translation": "#4363d8"}
 
 
 # ===================== УТИЛИТЫ =====================
@@ -302,6 +303,12 @@ if cats: f = f[f["category"].isin(cats)]
 
 CMAP = color_map(sorted(df["category"].unique()))
 
+# Дополняем палитру типов ошибок для неизвестных значений
+_known = set(ERROR_TYPE_COLORS)
+for i, et in enumerate(sorted(df["error_type"].unique())):
+    if et and et not in _known:
+        ERROR_TYPE_COLORS[et] = BASE_COLORS[i % len(BASE_COLORS)]
+
 # ===================== ВКЛАДКИ =====================
 
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Общая статистика",
@@ -320,7 +327,7 @@ with tab1:
 
     r1 = st.columns(3)
     with r1[0]:
-        colored_bar(f["error_type"], CMAP, "По типу ошибки")
+        colored_bar(f["error_type"], ERROR_TYPE_COLORS, "По типу ошибки")
     with r1[1]:
         severity_bar(f["severity"])
     with r1[2]:
@@ -526,7 +533,7 @@ with tab4:
         colored_bar(fc.loc[fc["has_comment"], "category"], CMAP,
                     "Комментарии по категориям")
     with r2c:
-        colored_bar(fc.loc[fc["has_comment"], "error_type"], CMAP,
+        colored_bar(fc.loc[fc["has_comment"], "error_type"], ERROR_TYPE_COLORS,
                     "Комментарии по типам ошибок")
 
     cat_comm = (fc.groupby("category")
